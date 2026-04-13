@@ -27,16 +27,24 @@ Don't worry too much about installing these manually — bb-dl checks for them a
 
 ## How to install
 
-1. Download `bb-dl.py`
-2. Make it executable:
+### Easy way (recommended) 🚀
+No Python needed — just download and run!
+
+1. Go to [Releases]
+2. Download the latest `bb-dl` file
+3. Open terminal where the file is and run:
 ```bash
-chmod +x bb-dl.py
-sudo ln -s /path/to/bb-dl.py /usr/local/bin/bb-dl
+chmod +x bb-dl
+./bb-dl
 ```
-3. Run it from anywhere in your terminal:
+
+Or make it runnable from anywhere:
 ```bash
-bb-dl
+sudo ln -s /path/to/bb-dl /usr/local/bin/bb-dl
 ```
+
+Then just type `bb-dl` from anywhere in your terminal 😄
+
 
 ## How to use
 
