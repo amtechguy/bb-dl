@@ -1,0 +1,64 @@
+# bb-dl 🎌
+
+So you want to watch anime huh? Same. That's literally why this exists.
+
+bb-dl is a command line tool for Linux that lets you search, download and stream anime straight from your terminal like the cool person you are. No browser, no ads, no nonsense.
+
+## What it can do 🔥
+
+- Search for any anime by name (even if your spelling is a bit off)
+- Download single episodes or entire season ranges
+- Stream directly without downloading
+- Sub or dub — your choice, no judgment
+- Quality selection from 360p all the way to 1080p
+- Automatically creates organised folders in ~/Videos for each anime
+- Keeps a download history so you never forget where you left off
+- Continue from where you stopped with one click
+- Auto installs dependencies so you don't have to stress
+
+## Requirements
+
+- Linux ONLY 😄
+- Python 3
+- ani-cli
+- requests
+
+Don't worry too much about installing these manually — bb-dl checks for them at startup and handles it for you.
+
+## How to install
+
+1. Download `bb-dl.py`
+2. Make it executable:
+```bash
+chmod +x bb-dl.py
+sudo ln -s /path/to/bb-dl.py /usr/local/bin/bb-dl
+```
+3. Run it from anywhere in your terminal:
+```bash
+bb-dl
+```
+
+## How to use
+
+Just run `bb-dl` and follow the prompts. It's literally:
+
+1. Type anime name
+2. Pick from results
+3. Choose sub or dub
+4. Pick quality
+5. Choose episodes
+6. Done
+
+It's so simple even your grandma could use it. Probably.
+
+## Legal stuff 👀
+
+This tool relies on ani-cli to fetch anime from various sources on the internet. What you do with it is entirely your business. If anyone asks — especially anyone in a uniform — you found this tool on the internet and you have absolutely no idea who made it. The developer is a ghost. He doesn't exist. Never heard of him.
+
+Stay safe out there 🫡
+
+## Credits
+
+Built with love, broken code, and a lot of patience by **amtechguy** 😄
+
+Shoutout to ani-cli and the MyAnimeList API for making this possible.
