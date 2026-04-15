@@ -64,16 +64,59 @@ def show_history():
 def search_anime(query):
     import requests
     print(f"\n🔍 Searching for: {query}")
-    url = f"https://api.jikan.moe/v4/anime?q={query}&limit=10"
-    response = requests.get(url)
-    data = response.json()
-    results = []
-    for anime in data["data"]:
-        title = anime["titles"][0]["title"]
-        episodes = anime.get("episodes", "?")
-        year = anime.get("year", "?")
-        results.append({"title": title, "episodes": episodes, "year": year})
-    return results
+    
+    # Try AniList first
+    try:
+        anilist_query = """
+        query ($search: String) {
+            Page(page: 1, perPage: 10) {
+                media(search: $search, type: ANIME) {
+                    title { romaji english }
+                    episodes
+                    seasonYear
+                }
+            }
+        }
+        """
+        response = requests.post(
+            "https://graphql.anilist.co",
+            json={"query": anilist_query, "variables": {"search": query}},
+            timeout=10
+        )
+        data = response.json()
+        media = data["data"]["Page"]["media"]
+        
+        if media:
+            results = []
+            for anime in media:
+                title = anime["title"]["english"] or anime["title"]["romaji"]
+                episodes = anime.get("episodes", "?")
+                year = anime.get("seasonYear", "?")
+                results.append({"title": title, "episodes": episodes, "year": year})
+            return results
+    except Exception:
+        print("⚠️ AniList failed, trying backup...")
+    
+    # Fall back to Jikan
+    try:
+        response = requests.get(
+            f"https://api.jikan.moe/v4/anime?q={query}&limit=10",
+            timeout=10
+        )
+        data = response.json()
+        if "data" not in data:
+            print("❌ Both search sources failed. Please try again.")
+            return []
+        results = []
+        for anime in data["data"]:
+            title = anime["titles"][0]["title"]
+            episodes = anime.get("episodes", "?")
+            year = anime.get("year", "?")
+            results.append({"title": title, "episodes": episodes, "year": year})
+        return results
+    except Exception:
+        print("❌ Both search sources failed. Please try again.")
+        return []
 
 def pick_anime(results):
     print(f"\n📋 Search results:\n")
