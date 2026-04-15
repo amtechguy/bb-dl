@@ -27,7 +27,7 @@ def load_history():
     with open(HISTORY_FILE, "r") as f:
         return json.load(f)
 
-def save_history(title, episodes, quality, sub_dub, type="download"):
+def save_history(title, episodes, quality, sub_dub, type="download", query=None):
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     history = load_history()
     for entry in history:
@@ -37,10 +37,13 @@ def save_history(title, episodes, quality, sub_dub, type="download"):
             entry["sub_dub"] = sub_dub
             entry["type"] = type
             entry["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if query:
+                entry["query"] = query
             break
     else:
         history.append({
             "title": title,
+            "query": query or title,
             "episodes": episodes,
             "quality": quality,
             "sub_dub": sub_dub,
@@ -174,13 +177,13 @@ def main():
         if not quality:
             quality = "720p"
         download_folder = get_download_folder(selected['title'])
-        command = ["ani-cli", "-d", selected['title'], "-e", episodes, "-q", quality]
+        command = ["ani-cli", "-d", query, "-e", episodes, "-q", quality]
         if sub_dub == "dub":
             command.append("--dub")
         print(f"\n⬇️ Starting download...")
         os.chdir(download_folder)
         subprocess.run(command)
-        save_history(selected['title'], episodes, quality, sub_dub, "download")
+        save_history(selected['title'], episodes, quality, sub_dub, "download", query=query)
         print(f"\n✅ Saved to history!")
 
     elif action == "2":
@@ -197,7 +200,7 @@ def main():
         quality = input("Quality? (360p/480p/720p/1080p) [default 720p]: ").strip().lower()
         if not quality:
             quality = "720p"
-        command = ["ani-cli", selected['title'], "-e", episode, "-q", quality]
+        command = ["ani-cli", query, "-e", episode, "-q", quality]
         if sub_dub == "dub":
             command.append("--dub")
         print(f"\n▶️ Streaming {selected['title']} episode {episode}...")
@@ -236,13 +239,14 @@ def main():
             print(f"\n✅ Continuing: {entry['title']} from episode {next_ep}")
             episodes = input(f"Episode or range (e.g. {next_ep} or {next_ep}-{next_ep+11}): ").strip()
         download_folder = get_download_folder(entry["title"])
-        command = ["ani-cli", "-d", entry["title"], "-e", episodes, "-q", quality]
+        ani_query = entry.get("query", entry["title"])
+        command = ["ani-cli", "-d", ani_query, "-e", episodes, "-q", quality]
         if sub_dub == "dub":
             command.append("--dub")
         print(f"\n⬇️ Starting download...")
         os.chdir(download_folder)
         subprocess.run(command)
-        save_history(entry["title"], episodes, quality, sub_dub, "download")
+        save_history(entry["title"], episodes, quality, sub_dub, "download", query=ani_query)
         print(f"\n✅ History updated!")
 
 if __name__ == "__main__":
