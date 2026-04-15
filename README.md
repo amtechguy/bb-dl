@@ -2,7 +2,7 @@
 
 So you want to watch anime huh? Same. That's literally why this exists.
 
-bb-dl is a command line tool for Linux that lets you search, download and stream anime straight from your terminal like the cool person you are. No browser, no ads, no nonsense.
+bb-dl is a command line tool for Linux that lets you search, download and stream anime straight from your terminal like the cool person you are. No browser, no ads, no nonsense. Now with a proper TUI that actually looks good.
 
 ## What it can do 🔥
 
@@ -15,6 +15,10 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 - Keeps a download history so you never forget where you left off
 - Continue from where you stopped with one click
 - Auto installs dependencies so you don't have to stress
+- **Arrow-key menus** — no more typing numbers like it's 1995
+- **Coloured tables and panels** for search results and history
+- **Config file** — set your default quality, sub/dub and download folder once and forget about it
+- **Settings menu** — change your defaults anytime without touching a config file manually
 
 ## Requirements
 
@@ -22,6 +26,8 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 - Python 3
 - ani-cli
 - requests
+- rich
+- questionary
 
 Don't worry too much about installing these manually — bb-dl checks for them at startup and handles it for you.
 
@@ -51,13 +57,23 @@ Then just type `bb-dl` from anywhere in your terminal 😄
 Just run `bb-dl` and follow the prompts. It's literally:
 
 1. Type anime name
-2. Pick from results
+2. Pick from results with arrow keys
 3. Choose sub or dub
 4. Pick quality
 5. Choose episodes
 6. Done
 
 It's so simple even your grandma could use it. Probably.
+
+## Config
+
+bb-dl saves a config file at `~/.bb-dl/config.json` with your preferences. You can change these at any time from the **Settings** menu inside the app — no need to manually edit any files.
+
+| Setting | Default |
+|---|---|
+| Quality | 720p |
+| Sub/Dub | sub |
+| Download Folder | ~/Videos |
 
 ## Legal stuff 👀
 
@@ -69,4 +85,4 @@ Stay safe out there 🫡
 
 Built with love, broken code, and a lot of patience by **amtechguy** 😄
 
-Shoutout to ani-cli and the MyAnimeList API for making this possible.
+Shoutout to ani-cli and the AniList API for making this possible.
