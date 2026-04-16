@@ -62,6 +62,16 @@ def install_ani_cli(distro):
             sys.exit(1)
 
 
+def check_system_deps():
+    """Check for fzf, aria2 and mpv — warn if missing but don't block."""
+    needed = {"fzf": "fzf", "aria2c": "aria2", "mpv": "mpv"}
+    missing = [pkg for binary, pkg in needed.items() if not shutil.which(binary)]
+    if missing:
+        print(f"⚠️  Missing optional deps: {', '.join(missing)}")
+        print(f"   Install them with your package manager (e.g. sudo apt install {' '.join(missing)})")
+        print()
+
+
 def check_dependencies():
     missing = []
     for pkg in ["requests", "rich", "questionary"]:
@@ -77,13 +87,14 @@ def check_dependencies():
                 check=True,
             )
         except subprocess.CalledProcessError:
-            # Fallback without --break-system-packages for older distros
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", *missing],
                 check=True,
             )
     if not shutil.which("ani-cli"):
         install_ani_cli(detect_distro())
+    check_system_deps()
+
 
 # ─────────────────────────────────────────────
 #  Config
