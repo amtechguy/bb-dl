@@ -38,23 +38,26 @@ The only thing you need beforehand is **Python 3** and **curl**. Everything else
 
 ## How to install
 
-### Easy way (recommended) 🚀
-No Python needed — just download and run!
+### The right way (works on every distro) 🚀
 
-1. Go to [Releases]
-2. Download the latest `bb-dl` file
-3. Open terminal where the file is and run:
+You need **Python 3** and **git** installed — that's it. Everything else is handled automatically.
+
 ```bash
-chmod +x bb-dl
-./bb-dl
+git clone https://github.com/amtechguy/bb-dl.git
+cd bb-dl
+python3 bb-dl.py
 ```
 
-Or make it runnable from anywhere:
+### Optional — run bb-dl from anywhere in your terminal
+
 ```bash
-sudo ln -s /path/to/bb-dl /usr/local/bin/bb-dl
+chmod +x bb-dl.py
+sudo ln -s "$(pwd)/bb-dl.py" /usr/local/bin/bb-dl
 ```
 
-Then just type `bb-dl` from anywhere in your terminal 😄
+Then just type `bb-dl` from anywhere 😄
+
+> **Note:** Avoid running the compiled binary from Releases if you are on Ubuntu, Zorin, Mint or any non-Arch distro — use the Python script above instead. It works better and has no compatibility issues.
 
 
 ## How to use
