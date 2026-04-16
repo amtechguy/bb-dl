@@ -22,14 +22,19 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 
 ## Requirements
 
-- Linux ONLY 😄
+- Linux (Arch, Debian, Ubuntu, Zorin, Fedora, and more)
 - Python 3
-- ani-cli
-- requests
-- rich
-- questionary
+- curl (pre-installed on most distros)
+- ani-cli — auto-installed for you
+- requests, rich, questionary — auto-installed for you
 
-Don't worry too much about installing these manually — bb-dl checks for them at startup and handles it for you.
+bb-dl detects your distro at startup and installs everything the right way:
+- **Arch-based** (Arch, Manjaro, EndeavourOS, etc.) → uses `yay` or `paru`
+- **Debian/Ubuntu-based** (Ubuntu, Zorin, Mint, Pop!_OS, etc.) → downloads ani-cli directly from GitHub
+- **Fedora/RHEL-based** → downloads ani-cli directly from GitHub
+- **Other distros** → universal fallback via curl
+
+The only thing you need beforehand is **Python 3** and **curl**. Everything else is handled.
 
 ## How to install
 
