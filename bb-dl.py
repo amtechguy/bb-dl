@@ -4,6 +4,7 @@ import subprocess
 import sys
 import os
 import json
+import shutil
 from datetime import datetime
 
 HISTORY_FILE = os.path.expanduser("~/.bb-dl/history.json")
@@ -12,6 +13,54 @@ CONFIG_FILE  = os.path.expanduser("~/.bb-dl/config.json")
 # ─────────────────────────────────────────────
 #  Dependencies
 # ─────────────────────────────────────────────
+
+def detect_distro():
+    """Returns the distro family: 'arch', 'debian', 'fedora', or 'unknown'."""
+    try:
+        with open("/etc/os-release") as f:
+            content = f.read().lower()
+        if any(x in content for x in ["arch", "manjaro", "endeavour", "garuda", "artix"]):
+            return "arch"
+        elif any(x in content for x in ["debian", "ubuntu", "zorin", "mint", "pop", "elementary", "kali", "parrot"]):
+            return "debian"
+        elif any(x in content for x in ["fedora", "rhel", "centos", "rocky", "alma"]):
+            return "fedora"
+        elif "opensuse" in content:
+            return "suse"
+    except Exception:
+        pass
+    return "unknown"
+
+
+def install_ani_cli(distro):
+    """Install ani-cli using the appropriate method for the detected distro."""
+    print("📦 Installing ani-cli...")
+
+    if distro == "arch":
+        # Try yay then paru
+        for helper in ["yay", "paru"]:
+            if shutil.which(helper):
+                subprocess.run([helper, "-S", "ani-cli", "--noconfirm"], check=True)
+                return
+        print("❌ No AUR helper found (yay/paru). Please install one first.")
+        sys.exit(1)
+
+    else:
+        # Universal: download the script directly from GitHub (works on Debian, Fedora, etc.)
+        if not shutil.which("curl"):
+            print("❌ curl is required to install ani-cli. Please install curl first.")
+            sys.exit(1)
+        try:
+            subprocess.run(
+                "curl -fsSL https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli "
+                "| sudo tee /usr/local/bin/ani-cli > /dev/null && sudo chmod +x /usr/local/bin/ani-cli",
+                shell=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print("❌ Failed to install ani-cli. Try installing it manually: https://github.com/pystardust/ani-cli")
+            sys.exit(1)
+
 
 def check_dependencies():
     missing = []
@@ -22,14 +71,19 @@ def check_dependencies():
             missing.append(pkg)
     if missing:
         print(f"📦 Installing: {', '.join(missing)} ...")
-        subprocess.run(
-            ["pip", "install", *missing, "--break-system-packages"],
-            check=True
-        )
-    result = subprocess.run(["which", "ani-cli"], capture_output=True)
-    if result.returncode != 0:
-        print("📦 Installing ani-cli...")
-        subprocess.run(["yay", "-S", "ani-cli", "--noconfirm"], check=True)
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", *missing, "--break-system-packages"],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            # Fallback without --break-system-packages for older distros
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", *missing],
+                check=True,
+            )
+    if not shutil.which("ani-cli"):
+        install_ani_cli(detect_distro())
 
 # ─────────────────────────────────────────────
 #  Config
