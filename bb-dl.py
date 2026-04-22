@@ -5,6 +5,7 @@ import sys
 import os
 import json
 import shutil
+import requests
 from datetime import datetime
 
 HISTORY_FILE = os.path.expanduser("~/.bb-dl/history.json")
@@ -96,6 +97,90 @@ def check_dependencies():
     check_system_deps()
 
 
+def check_ani_cli_update(config, console=None):
+    """Check ani-cli version against GitHub master and update via curl if outdated."""
+    from datetime import datetime, timedelta
+
+    ANI_CLI_RAW = "https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli"
+
+    def _print(msg, style="dim"):
+        if console:
+            console.print(f"[{style}]{msg}[/]")
+        else:
+            print(msg)
+
+    last = config.get("last_update_check")
+    now  = datetime.now()
+
+    if last:
+        try:
+            if now - datetime.fromisoformat(last) < timedelta(hours=24):
+                return  # checked recently, skip
+        except ValueError:
+            pass
+
+    _print("🔄 Checking ani-cli version against GitHub...")
+
+    # ── Get local version ────────────────────
+    try:
+        local_ver = subprocess.check_output(
+            ["ani-cli", "--version"], stderr=subprocess.DEVNULL, text=True
+        ).strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        local_ver = None
+
+    # ── Get remote version from raw script ──
+    try:
+        import requests as req
+        resp = req.get(ANI_CLI_RAW, timeout=10)
+        resp.raise_for_status()
+        remote_ver = None
+        for line in resp.text.splitlines():
+            if line.startswith("version=") or line.startswith("VERSION="):
+                remote_ver = line.split("=", 1)[1].strip().strip("'\"")
+                break
+    except Exception as e:
+        _print(f"⚠️  Could not reach GitHub to check ani-cli version: {e}", "yellow")
+        config["last_update_check"] = now.isoformat()
+        save_config(config)
+        return
+
+    if remote_ver is None:
+        _print("⚠️  Could not parse version from GitHub script.", "yellow")
+        config["last_update_check"] = now.isoformat()
+        save_config(config)
+        return
+
+    if local_ver and local_ver == remote_ver:
+        _print(f"✅ ani-cli is up to date (v{local_ver}).", "dim green")
+        config["last_update_check"] = now.isoformat()
+        save_config(config)
+        return
+
+    # ── Versions differ → update via curl ───
+    if local_ver:
+        _print(f"⬆️  Updating ani-cli  v{local_ver} → v{remote_ver} ...", "cyan")
+    else:
+        _print(f"📦 Installing ani-cli v{remote_ver} ...", "cyan")
+
+    target = shutil.which("ani-cli") or "/usr/local/bin/ani-cli"
+    try:
+        result = subprocess.run(
+            f"curl -fsSL {ANI_CLI_RAW} | sudo tee {target} > /dev/null && sudo chmod +x {target}",
+            shell=True,
+        )
+        if result.returncode == 0:
+            _print(f"✅ ani-cli updated to v{remote_ver}.", "bold green")
+        else:
+            _print("⚠️  Update returned non-zero. You may need to update manually.", "yellow")
+    except Exception as e:
+        _print(f"⚠️  Update failed: {e}", "yellow")
+
+    config["last_update_check"] = now.isoformat()
+    save_config(config)
+
+
+
 # ─────────────────────────────────────────────
 #  Config
 # ─────────────────────────────────────────────
@@ -104,6 +189,7 @@ CONFIG_DEFAULTS = {
     "default_quality":    "720p",
     "default_sub_dub":   "sub",
     "download_folder":   str(os.path.expanduser("~/Videos")),
+    "last_update_check": None,
 }
 
 def load_config():
@@ -307,6 +393,29 @@ def get_download_folder(anime_title, config):
     return folder
 
 # ─────────────────────────────────────────────
+#  Clear history
+# ─────────────────────────────────────────────
+
+def clear_history(console):
+    """Prompt for confirmation then wipe the history file."""
+    import questionary
+    history = load_history()
+    if not history:
+        console.print("[dim]📭 History is already empty.[/]")
+        return
+    confirm = questionary.confirm(
+        f"⚠️  Delete all {len(history)} history entries? This cannot be undone.",
+        default=False,
+    ).ask()
+    if confirm:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump([], f)
+        console.print("[green]🗑️  History cleared.[/]")
+    else:
+        console.print("[dim]Cancelled.[/]")
+
+
+# ─────────────────────────────────────────────
 #  Settings menu
 # ─────────────────────────────────────────────
 
@@ -321,6 +430,7 @@ def settings_menu(console, config):
                 f"🎬  Default Quality      [{config['default_quality']}]",
                 f"🗣️  Default Sub/Dub      [{config['default_sub_dub']}]",
                 f"📁  Download Folder      [{config['download_folder']}]",
+                "🗑️   Clear History",
                 "← Back",
             ],
             style=questionary.Style([
@@ -364,6 +474,9 @@ def settings_menu(console, config):
                 save_config(config)
                 console.print(f"[green]✅ Download folder → {folder}[/]")
 
+        elif "Clear History" in action:
+            clear_history(console)
+
 # ─────────────────────────────────────────────
 #  Main
 # ─────────────────────────────────────────────
@@ -378,6 +491,8 @@ def main():
 
     console = Console()
     config  = load_config()
+
+    check_ani_cli_update(config, console)
 
     # ── Banner ───────────────────────────────
     banner = Text()

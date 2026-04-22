@@ -11,36 +11,54 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 - Stream directly without downloading
 - Sub or dub — your choice, no judgment
 - Quality selection from 360p all the way to 1080p
-- Automatically creates organised folders in ~/Videos for each anime
+- Automatically creates organised folders in `~/Videos` for each anime
 - Keeps a download history so you never forget where you left off
 - Continue from where you stopped with one click
-- Auto installs dependencies so you don't have to stress
+- Auto installs missing dependencies so you don't have to stress
 - **Arrow-key menus** — no more typing numbers like it's 1995
 - **Coloured tables and panels** for search results and history
 - **Config file** — set your default quality, sub/dub and download folder once and forget about it
 - **Settings menu** — change your defaults anytime without touching a config file manually
+- **🔄 Auto ani-cli updater** — checks GitHub master on startup, compares version strings, and silently updates ani-cli via curl only when a newer version is actually available (throttled to once per 24h so it's never annoying)
+- **🗑️ Clear History** — wipe your watch history cleanly from Settings with a confirmation prompt so you can't do it by accident
 
 ## Requirements
 
-- Linux (Arch, Debian, Ubuntu, Zorin, Fedora, and more)
+- Linux (Arch, Manjaro, Debian, Ubuntu, Zorin, Fedora, and more)
 - Python 3
 - curl (pre-installed on most distros)
-- ani-cli — auto-installed for you
+- ani-cli, fzf, aria2, mpv — auto-installed for you
 - requests, rich, questionary — auto-installed for you
 
 bb-dl detects your distro at startup and installs everything the right way:
-- **Arch-based** (Arch, Manjaro, EndeavourOS, etc.) → uses `yay` or `paru`
-- **Debian/Ubuntu-based** (Ubuntu, Zorin, Mint, Pop!_OS, etc.) → downloads ani-cli directly from GitHub
-- **Fedora/RHEL-based** → downloads ani-cli directly from GitHub
-- **Other distros** → universal fallback via curl
+
+| Distro Family | Package Manager Used |
+|---|---|
+| Arch, Manjaro, EndeavourOS | yay or paru (AUR) |
+| Ubuntu, Zorin, Mint, Pop!_OS | apt |
+| Fedora, RHEL, CentOS | dnf |
+| openSUSE | zypper |
 
 The only thing you need beforehand is **Python 3** and **curl**. Everything else is handled.
 
 ## How to install
 
-### The right way (works on every distro) 🚀
+### Option 1 — Download the compiled binary (easiest) 🚀
 
-You need **Python 3** and **git** installed — that's it. Everything else is handled automatically.
+Go to the [Releases](../../releases) page, download the latest `bb-dl` binary, then:
+
+```bash
+chmod +x bb-dl
+sudo mv bb-dl /usr/local/bin/bb-dl
+```
+
+Then just type `bb-dl` from anywhere. No Python needed.
+
+---
+
+### Option 2 — Run from source (works on every distro)
+
+You need **Python 3** and **curl** installed — that's it.
 
 ```bash
 git clone https://github.com/amtechguy/bb-dl.git
@@ -48,7 +66,7 @@ cd bb-dl
 python3 bb-dl.py
 ```
 
-### Optional — run bb-dl from anywhere in your terminal
+#### Optional — make it available as a command anywhere
 
 ```bash
 chmod +x bb-dl.py
@@ -57,8 +75,30 @@ sudo ln -s "$(pwd)/bb-dl.py" /usr/local/bin/bb-dl
 
 Then just type `bb-dl` from anywhere 😄
 
-> **Note:** Avoid running the compiled binary from Releases if you are on Ubuntu, Zorin, Mint or any non-Arch distro — use the Python script above instead. It works better and has no compatibility issues.
+---
 
+### Option 3 — Build it yourself from source
+
+Requires **PyInstaller**:
+
+```bash
+git clone https://github.com/amtechguy/bb-dl.git
+cd bb-dl
+./build.sh
+sudo ln -s "$(pwd)/dist/bb-dl" /usr/local/bin/bb-dl
+```
+
+#### Auto-rebuild on save (for developers)
+
+If you're actively editing `bb-dl.py` and want it to recompile automatically every time you save:
+
+```bash
+./watch.sh
+```
+
+This runs in the background and rebuilds the binary instantly whenever `bb-dl.py` changes.
+
+---
 
 ## How to use
 
@@ -77,11 +117,13 @@ It's so simple even your grandma could use it. Probably.
 
 bb-dl saves a config file at `~/.bb-dl/config.json` with your preferences. You can change these at any time from the **Settings** menu inside the app — no need to manually edit any files.
 
-| Setting | Default |
-|---|---|
-| Quality | 720p |
-| Sub/Dub | sub |
-| Download Folder | ~/Videos |
+| Setting | Default | Options |
+|---|---|---|
+| Quality | 720p | 360p, 480p, 720p, 1080p |
+| Sub/Dub | sub | sub, dub |
+| Download Folder | ~/Videos | any path |
+
+> **Tip:** If an anime shows "no valid sources", bb-dl will automatically check for and apply the latest ani-cli update on next startup. You can also force it by deleting `last_update_check` from `~/.bb-dl/config.json`.
 
 ## Legal stuff 👀
 
