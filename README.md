@@ -43,6 +43,17 @@ The only thing you need beforehand is **Python 3** and **curl**. Everything else
 
 ## How to install
 
+> **Not sure which option to pick?** Use this table:
+>
+> | Your distro | Recommended method |
+> |---|---|
+> | Arch, Manjaro, EndeavourOS | ✅ Option 1 — Binary |
+> | Ubuntu 22.04+, Fedora 38+, Zorin 17+, Pop!_OS 22.04+ | ✅ Option 1 — Binary |
+> | Ubuntu 20.04, Debian Stable, older Mint, any old distro | ⚠️ Option 2 — Python source |
+> | Unsure / anything else | ✅ Option 2 — always works |
+>
+> The binary was compiled on Arch Linux. On older distros it may fail with a `GLIBC_X.XX not found` error — if that happens, just use Option 2 instead. It works identically.
+
 ### Option 1 — Download the compiled binary (easiest) 🚀
 
 Go to the [Releases](../../releases) page, download the latest `bb-dl` binary, then:
