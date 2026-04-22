@@ -136,6 +136,65 @@ bb-dl saves a config file at `~/.bb-dl/config.json` with your preferences. You c
 
 > **Tip:** If an anime shows "no valid sources", bb-dl will automatically check for and apply the latest ani-cli update on next startup. You can also force it by deleting `last_update_check` from `~/.bb-dl/config.json`.
 
+## Troubleshooting 🔧
+
+### `Episode is released, but no valid sources!`
+
+This is the most common error and it comes from ani-cli's upstream source (allanime) changing or breaking — not from bb-dl itself.
+
+**bb-dl will try to fix this automatically** on next startup by pulling the latest ani-cli from GitHub. But if the official ani-cli repo hasn't caught up yet, follow the manual steps below.
+
+---
+
+#### Step 1 — Update yt-dlp
+
+An outdated yt-dlp is often the real culprit. The version from `apt` on Debian/Ubuntu is usually way behind — replace it with the official binary:
+
+```bash
+# Remove the old apt version (Debian/Ubuntu only)
+sudo rm -f /usr/bin/yt-dlp
+
+# Install the latest binary directly
+sudo curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+sudo chmod +x /usr/local/bin/yt-dlp
+
+# Verify
+yt-dlp --version
+```
+
+On **Arch/Manjaro**, just run: `sudo pacman -S yt-dlp`
+
+---
+
+#### Step 2 — Manually patch ani-cli (if Step 1 didn't fix it)
+
+When the official ani-cli repo is lagging behind on a fix, you can install the patched version from a community fork:
+
+```bash
+# 1. Back up your current ani-cli
+target="$(readlink -f "$(command -v ani-cli)")"
+cp "$target" ~/ani-cli-backup
+
+# 2. Clone the fix branch
+git clone -b allanime-fix https://github.com/justchokingaround/ani-cli.git /tmp/ani-cli-fix
+
+# 3. Install it
+sudo install -m 755 /tmp/ani-cli-fix/ani-cli "$target"
+
+# 4. Verify
+ani-cli --version
+```
+
+> **Note:** This replaces your ani-cli with a community-patched version. Once the official repo catches up, bb-dl's auto-updater will switch you back to the official one on the next 24h check. To force it sooner, delete `last_update_check` from `~/.bb-dl/config.json` and restart bb-dl.
+
+---
+
+#### Still broken?
+
+Check the [ani-cli issues page](https://github.com/pystardust/ani-cli/issues) — if the source is down, you'll usually find other people reporting it there along with any latest fix.
+
+---
+
 ## Legal stuff 👀
 
 This tool relies on ani-cli to fetch anime from various sources on the internet. What you do with it is entirely your business. If anyone asks — especially anyone in a uniform — you found this tool on the internet and you have absolutely no idea who made it. The developer is a ghost. He doesn't exist. Never heard of him.
