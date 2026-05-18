@@ -16,7 +16,6 @@ CONFIG_FILE  = os.path.expanduser("~/.bb-dl/config.json")
 # ─────────────────────────────────────────────
 
 def check_dependencies():
-    """Install missing Python packages."""
     missing = []
     for pkg in ["requests", "rich", "questionary", "anipy_api"]:
         try:
@@ -25,7 +24,6 @@ def check_dependencies():
             missing.append(pkg)
 
     if missing:
-        # anipy_api is published as 'anipy-api' on PyPI
         install_names = [
             "anipy-api" if p == "anipy_api" else p for p in missing
         ]
@@ -42,14 +40,11 @@ def check_dependencies():
                 check=True,
             )
 
-    # Warn about optional system tools
-    needed = {"aria2c": "aria2", "mpv": "mpv", "ffmpeg": "ffmpeg"}
-    missing_sys = [pkg for binary, pkg in needed.items()
-                   if not shutil.which(binary)]
+    needed = {"mpv": "mpv", "ffmpeg": "ffmpeg"}
+    missing_sys = [pkg for binary, pkg in needed.items() if not shutil.which(binary)]
     if missing_sys:
         print(f"⚠️  Missing optional system deps: {', '.join(missing_sys)}")
-        print(f"   Install with your package manager, e.g.: "
-              f"sudo pacman -S {' '.join(missing_sys)}")
+        print(f"   Install with: sudo pacman -S {' '.join(missing_sys)}")
         print()
 
 
@@ -239,32 +234,46 @@ def settings_menu(console, config):
 # ─────────────────────────────────────────────
 
 def _quality_to_int(quality_str):
-    """Convert e.g. '720p' → 720."""
     return int(quality_str.replace("p", "").strip())
 
 
-def get_provider_and_lang(sub_dub):
-    """Return (provider_class, LanguageTypeEnum) for AllAnime.
+# AllAnime is primary; AnimeKai is the fallback.
+FALLBACK_PROVIDERS = ["allanime", "animekai"]
 
-    Note: get_provider() returns the class directly (not a factory),
-    so we use it as-is without instantiation.
-    """
+
+def get_provider_and_lang(sub_dub, provider_name="allanime"):
     from anipy_api.provider import get_provider, LanguageTypeEnum
-    provider = get_provider("allanime")   # returns the class directly
+    provider = get_provider(provider_name)
     lang = LanguageTypeEnum.DUB if sub_dub == "dub" else LanguageTypeEnum.SUB
     return provider, lang
 
 
+def _search_with_fallback(query, sub_dub, console, preferred_provider="allanime"):
+    """Search a specific provider. Returns (anime, provider_name) or (None, None)."""
+    from anipy_api.anime import Anime
+    from difflib import get_close_matches
+    try:
+        provider, lang = get_provider_and_lang(sub_dub, preferred_provider)
+        results = list(provider.get_search(query))
+        if not results:
+            return None, None
+        filtered = [r for r in results if lang in r.languages] or results
+        names = [r.name for r in filtered]
+        close = get_close_matches(query, names, n=1, cutoff=0.3)
+        match = next((r for r in filtered if r.name == close[0]), filtered[0]) if close else filtered[0]
+        anime = Anime.from_search_result(provider, match)
+        return anime, preferred_provider
+    except Exception:
+        return None, None
+
+
 def search_and_pick(query, sub_dub, console):
-    """
-    Search AllAnime for query, show results in a rich table,
-    let user pick one. Returns an Anime object or None.
-    """
+    """Search AllAnime, show results, let user pick. Returns Anime or None."""
     from anipy_api.anime import Anime
     from rich.table import Table
     from rich.panel import Panel
-    from rich.columns import Columns
     from rich.text import Text
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     import questionary
 
     provider, lang = get_provider_and_lang(sub_dub)
@@ -274,23 +283,19 @@ def search_and_pick(query, sub_dub, console):
         results = list(provider.get_search(query))
     except Exception as e:
         console.print(f"[red]❌ Search failed: {e}[/]")
+        console.print("[yellow]💡 Try: pip install --upgrade anipy-api --break-system-packages[/]")
         return None
 
     if not results:
         console.print("[red]❌ No results found.[/]")
         return None
 
-    # Filter to only show those that support the chosen language
     filtered = [r for r in results if lang in r.languages]
     if not filtered:
         filtered = results
-        console.print(
-            f"[yellow]⚠️  No {sub_dub} results found; showing all.[/]"
-        )
+        console.print(f"[yellow]⚠️  No {sub_dub} results; showing all.[/]")
 
-    # ── Fetch years in parallel (one get_info per result) ────────────
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
+    # Fetch years in parallel
     console.print("[dim]⏳ Loading details...[/]", end="\r")
 
     def fetch_year(r):
@@ -307,7 +312,7 @@ def search_and_pick(query, sub_dub, console):
             ident, year = fut.result()
             year_map[ident] = year
 
-    console.print(" " * 30, end="\r")  # clear the loading line
+    console.print(" " * 30, end="\r")
 
     table = Table(title="Search Results", border_style="cyan",
                   header_style="bold magenta", show_lines=True)
@@ -322,8 +327,10 @@ def search_and_pick(query, sub_dub, console):
 
     console.print(table)
 
-    choices = [f"{r.name}  [{'/'.join(sorted(lv.value.upper() for lv in r.languages))}]"
-               for r in filtered]
+    choices = [
+        f"{r.name}  [{'/'.join(sorted(lv.value.upper() for lv in r.languages))}]"
+        for r in filtered
+    ]
     choices.append("❌  Cancel")
 
     answer = questionary.select(
@@ -343,25 +350,24 @@ def search_and_pick(query, sub_dub, console):
     selected_result = filtered[idx]
     anime = Anime.from_search_result(provider, selected_result)
 
-    # ── Fetch & display info for selected anime ──────────────────────
-    console.print(f"\n[dim]⏳ Fetching details...[/]", end="\r")
+    # Show details for selected anime
+    console.print("[dim]⏳ Fetching details...[/]", end="\r")
     try:
         info = provider.get_info(selected_result.identifier)
         ep_count = len(anime.get_episodes(lang))
-
         year    = str(info.release_year) if info.release_year else "?"
         status  = info.status.name.capitalize() if info.status else "?"
         genres  = ", ".join(info.genres[:4]) if info.genres else "?"
 
         detail = Text()
-        detail.append(f"📅 Year: ", style="dim")
-        detail.append(f"{year}   ", style="bold yellow")
-        detail.append(f"🎬 Episodes: ", style="dim")
-        detail.append(f"{ep_count}   ", style="bold cyan")
-        detail.append(f"📊 Status: ", style="dim")
-        detail.append(f"{status}   ", style="bold green")
+        detail.append(f"📅 Year: ",      style="dim")
+        detail.append(f"{year}   ",      style="bold yellow")
+        detail.append(f"🎬 Episodes: ",  style="dim")
+        detail.append(f"{ep_count}   ",  style="bold cyan")
+        detail.append(f"📊 Status: ",    style="dim")
+        detail.append(f"{status}   ",    style="bold green")
         detail.append(f"\n🏷️  Genres: ", style="dim")
-        detail.append(genres, style="italic white")
+        detail.append(genres,            style="italic white")
 
         console.print(Panel(
             detail,
@@ -370,13 +376,12 @@ def search_and_pick(query, sub_dub, console):
             padding=(0, 2),
         ))
     except Exception:
-        pass  # Info fetch is optional — silently skip if it fails
+        pass
 
     return anime
 
 
 def _parse_episode_range(episodes_str):
-    """Parse '5' → [5] and '1-12' → [1,2,...,12]."""
     episodes_str = episodes_str.strip()
     if "-" in episodes_str:
         start, end = episodes_str.split("-", 1)
@@ -385,49 +390,133 @@ def _parse_episode_range(episodes_str):
 
 
 def _api_upgrade_hint(console):
-    """Print a hint to upgrade anipy-api when things go wrong."""
     console.print(
-        "[yellow]💡 If this keeps happening, try upgrading anipy-api:[/]\n"
+        "[yellow]💡 Try upgrading anipy-api:[/]\n"
         "   [dim]pip install --upgrade anipy-api --break-system-packages[/]"
     )
 
 
+def _is_provider_error(exc):
+    """Detect AllAnime/AnimeKai server-side episode errors."""
+    msg = str(exc)
+    return (
+        "NoneType' object is not subscriptable" in msg
+        or "'episode'" in msg
+        or ("episode" in msg.lower() and "NoneType" in msg)
+        or "KeyError" in msg
+    )
+
+
+def _provider_error_message(console, provider_name):
+    console.print()
+    console.print(
+        f"[bold red]🚨 {provider_name} is returning broken responses.[/]\n"
+        "[yellow]   This is an upstream provider issue, not a bb-dl bug.[/]\n"
+        "[dim]   The provider's server is returning bad data — nothing fixable locally.[/]"
+    )
+    console.print()
+
+
+def _get_streams_with_fallback(anime, ep, lang, sub_dub, console):
+    """
+    Try to get streams for `ep` from the anime's provider.
+    If it fails with a known provider error, try the other provider.
+    Returns (streams, anime_used) or (None, None).
+    """
+    # Try primary provider first
+    try:
+        streams = anime.get_videos(ep, lang)
+        if streams:
+            return streams, anime
+    except Exception as e:
+        if _is_provider_error(e):
+            _provider_error_message(console, anime.provider.NAME)
+        else:
+            console.print(f"[red]❌ Stream fetch error: {e}[/]")
+            _api_upgrade_hint(console)
+            return None, None
+
+    # Try fallback providers
+    for fallback_name in FALLBACK_PROVIDERS:
+        if fallback_name == anime.provider.NAME:
+            continue
+        console.print(f"[cyan]🔄 Trying fallback: {fallback_name}...[/]")
+        try:
+            fb_anime, _ = _search_with_fallback(
+                anime.name, sub_dub, console, preferred_provider=fallback_name
+            )
+            if fb_anime is None:
+                console.print(f"[yellow]   ⚠️  No match on {fallback_name}[/]")
+                continue
+
+            from anipy_api.provider import LanguageTypeEnum
+            fb_lang = LanguageTypeEnum.DUB if sub_dub == "dub" else LanguageTypeEnum.SUB
+            fb_eps  = fb_anime.get_episodes(fb_lang)
+            fb_ep   = next((e for e in fb_eps if float(e) == float(ep)), None)
+
+            if fb_ep is None:
+                console.print(f"[yellow]   ⚠️  Episode not found on {fallback_name}[/]")
+                continue
+
+            streams = fb_anime.get_videos(fb_ep, fb_lang)
+            if streams:
+                console.print(f"[green]   ✅ Got streams from {fallback_name}[/]")
+                return streams, fb_anime
+
+        except Exception as fb_e:
+            console.print(f"[yellow]   ⚠️  {fallback_name} also failed: {fb_e}[/]")
+
+    console.print("[red]❌ All providers failed. Try again later.[/]")
+    return None, None
+
+
 def _try_download_stream(stream, out_file, console):
-    """
-    Attempt to download a stream. Returns the result Path on success, None on failure.
-    Handles HLS/ffmpeg check and gives clear error messages.
-    """
+    """Try to download a stream. Returns result Path on success, None on 403."""
     from anipy_api.download import Downloader
+    from rich.progress import (
+        Progress, BarColumn, DownloadColumn,
+        TransferSpeedColumn, TimeRemainingColumn, TextColumn,
+    )
 
     is_hls = "m3u8" in stream.url
     if is_hls and not shutil.which("ffmpeg"):
         console.print(
-            "[yellow]⚠️  This stream is HLS but ffmpeg is not installed.\n"
-            "   Install it to download HLS streams:\n"
-            "   [dim]sudo pacman -S ffmpeg   # Arch[/]\n"
-            "   [dim]sudo apt install ffmpeg  # Debian/Ubuntu[/][/]"
+            "[yellow]⚠️  HLS stream requires ffmpeg.\n"
+            "   Install it: sudo pacman -S ffmpeg[/]"
         )
         return None
 
-    last_pct = [-1]
-    def progress_cb(pct, last=last_pct):
-        if int(pct) % 10 == 0 and int(pct) != last[0]:
-            last[0] = int(pct)
-            console.print(f"[green]   {int(pct)}%...[/]")
+    with Progress(
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(bar_width=30, style="cyan", complete_style="green"),
+        "[progress.percentage]{task.percentage:>5.1f}%",
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task = progress.add_task("Downloading", total=100)
 
-    try:
-        downloader = Downloader(progress_callback=progress_cb)
-        result_path = downloader.download(stream, out_file, container=".mp4")
-        return result_path
-    except Exception as e:
-        err = str(e).lower()
-        if "403" in err or "forbidden" in err:
-            return None   # signal caller to try next stream
-        raise   # re-raise unexpected errors
+        def progress_cb(pct):
+            progress.update(task, completed=float(pct))
+
+        try:
+            downloader = Downloader(progress_callback=progress_cb)
+            result_path = downloader.download(stream, out_file, container=".mp4")
+            progress.update(task, completed=100)
+            return result_path
+        except KeyboardInterrupt:
+            progress.stop()
+            raise
+        except Exception as e:
+            err = str(e).lower()
+            if "403" in err or "forbidden" in err:
+                return None
+            raise
 
 
 def download_episodes(anime, episodes_str, quality, sub_dub, download_folder, console):
-    """Download one or more episodes using anipy-api + ffmpeg/aria2c."""
     from anipy_api.provider import LanguageTypeEnum
 
     lang = LanguageTypeEnum.DUB if sub_dub == "dub" else LanguageTypeEnum.SUB
@@ -443,53 +532,33 @@ def download_episodes(anime, episodes_str, quality, sub_dub, download_folder, co
         console.print("[red]❌ No episodes available for this anime/language.[/]")
         return False
 
-    ep_numbers = _parse_episode_range(episodes_str)
-
-    # Find closest matching Episode objects
-    target_eps = []
-    for num in ep_numbers:
-        match = next((ep for ep in available_eps if float(ep) == float(num)), None)
-        if match is None:
-            console.print(f"[yellow]⚠️  Episode {num} not found, skipping.[/]")
-        else:
-            target_eps.append(match)
-
-    if not target_eps:
-        console.print("[red]❌ None of the requested episodes were found.[/]")
-        console.print(f"[dim]   Available: {[str(e) for e in available_eps[:15]]}[/]")
-        return False
-
+    ep_numbers  = _parse_episode_range(episodes_str)
     preferred_q = _quality_to_int(quality)
     success_count = 0
 
-    for ep in target_eps:
+    for num in ep_numbers:
+        ep = next((e for e in available_eps if float(e) == float(num)), None)
+        if ep is None:
+            console.print(f"[yellow]⚠️  Episode {num} not found, skipping.[/]")
+            console.print(f"[dim]   Available: {[str(e) for e in available_eps[:15]]}[/]")
+            continue
+
         console.print(f"\n[cyan]⬇️  Fetching streams for episode {ep}...[/]")
+        streams, used_anime = _get_streams_with_fallback(anime, ep, lang, sub_dub, console)
 
-        # ── Failsafe 1: get ALL streams, try each until one works ────
-        try:
-            all_streams = anime.get_videos(ep, lang)
-        except Exception as e:
-            console.print(f"[red]❌ Could not fetch streams for ep {ep}: {e}[/]")
-            _api_upgrade_hint(console)
+        if not streams:
             continue
 
-        if not all_streams:
-            console.print(f"[red]❌ No streams found for episode {ep}.[/]")
-            continue
+        streams.sort(key=lambda s: abs(s.resolution - preferred_q))
 
-        # Sort: prefer requested quality, then best available
-        all_streams.sort(
-            key=lambda s: abs(s.resolution - preferred_q)
-        )
-
-        safe_name = anime.name.replace("/", "-").replace("\\", "-")
-        out_file = Path(download_folder) / f"{safe_name} - E{str(ep).zfill(2)}"
+        safe_name = used_anime.name.replace("/", "-").replace("\\", "-")
+        out_file  = Path(download_folder) / f"{safe_name} - E{str(ep).zfill(2)}"
 
         downloaded = False
-        for attempt, stream in enumerate(all_streams, 1):
+        for attempt, stream in enumerate(streams, 1):
             stream_type = "HLS" if "m3u8" in stream.url else "Direct"
             console.print(
-                f"[dim]   Trying stream {attempt}/{len(all_streams)}: "
+                f"[dim]   Trying stream {attempt}/{len(streams)}: "
                 f"{stream.resolution}p {stream_type}[/]"
             )
             try:
@@ -500,21 +569,17 @@ def download_episodes(anime, episodes_str, quality, sub_dub, download_folder, co
                     downloaded = True
                     break
                 else:
-                    console.print(f"[yellow]   ⚠️  Stream blocked (403), trying next...[/]")
+                    console.print("[yellow]   ⚠️  Stream blocked (403), trying next...[/]")
             except Exception as e:
-                console.print(f"[red]   ❌ Stream failed: {e}[/]")
+                console.print(f"[red]   ❌ Stream error: {e}[/]")
 
         if not downloaded:
-            console.print(
-                f"[red]❌ All streams failed for episode {ep}. "
-                f"The CDN may be blocking requests right now.[/]"
-            )
+            console.print(f"[red]❌ All streams failed for episode {ep}.[/]")
 
     return success_count > 0
 
 
 def stream_episode(anime, episode_str, quality, sub_dub, console):
-    """Stream a single episode in mpv, with fallback across all streams."""
     from anipy_api.provider import LanguageTypeEnum
 
     lang = LanguageTypeEnum.DUB if sub_dub == "dub" else LanguageTypeEnum.SUB
@@ -527,7 +592,7 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
         return False
 
     ep_num = float(episode_str.strip())
-    ep = next((e for e in available_eps if float(e) == ep_num), None)
+    ep     = next((e for e in available_eps if float(e) == ep_num), None)
 
     if ep is None:
         console.print(f"[red]❌ Episode {episode_str} not found.[/]")
@@ -537,44 +602,35 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
     preferred_q = _quality_to_int(quality)
     console.print(f"\n[cyan]🔗 Fetching streams for episode {ep}...[/]")
 
-    # ── Failsafe 1: get ALL streams, try each until one opens ────────
-    try:
-        all_streams = anime.get_videos(ep, lang)
-    except Exception as e:
-        console.print(f"[red]❌ Could not fetch streams: {e}[/]")
-        _api_upgrade_hint(console)
+    streams, stream_anime = _get_streams_with_fallback(anime, ep, lang, sub_dub, console)
+    if not streams:
         return False
 
-    if not all_streams:
-        console.print("[red]❌ No streams found.[/]")
-        return False
-
-    all_streams.sort(key=lambda s: abs(s.resolution - preferred_q))
+    streams.sort(key=lambda s: abs(s.resolution - preferred_q))
 
     if not shutil.which("mpv"):
-        console.print("[red]❌ mpv not found. Install it to stream.[/]")
-        console.print(f"[yellow]   Direct URL: {all_streams[0].url}[/]")
+        console.print("[red]❌ mpv not found. Install it: sudo pacman -S mpv[/]")
+        console.print(f"[yellow]   Direct URL: {streams[0].url}[/]")
         return False
 
-    referrer = getattr(all_streams[0], "referrer", None) or "https://allanime.day"
+    referrer   = getattr(streams[0], "referrer", None) or "https://allanime.day"
     user_agent = (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 
-    for attempt, stream in enumerate(all_streams, 1):
+    for attempt, stream in enumerate(streams, 1):
         stream_type = "HLS" if "m3u8" in stream.url else "Direct"
         console.print(
-            f"[dim]   Trying stream {attempt}/{len(all_streams)}: "
+            f"[dim]   Trying stream {attempt}/{len(streams)}: "
             f"{stream.resolution}p {stream_type}[/]"
         )
         console.print(f"\n[bold green]▶️  Opening in mpv...[/]\n")
 
         mpv_cmd = [
-            "mpv",
-            stream.url,
+            "mpv", stream.url,
             "--no-ytdl",
-            f"--title={anime.name} - Episode {ep}",
+            f"--title={stream_anime.name} - Episode {ep}",
             f"--referrer={referrer}",
             f"--user-agent={user_agent}",
         ]
@@ -582,16 +638,12 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
             mpv_cmd.append(f"--sub-file={stream.subtitle}")
 
         result = subprocess.run(mpv_cmd)
-
-        # mpv exit code 2 = file couldn't be opened (e.g. 403)
         if result.returncode != 2:
             return True
 
-        console.print(f"[yellow]⚠️  Stream failed (blocked?), trying next...[/]")
+        console.print("[yellow]⚠️  Stream failed (blocked?), trying next...[/]")
 
-    console.print(
-        "[red]❌ All streams failed. The CDN may be blocking requests right now.[/]"
-    )
+    console.print("[red]❌ All streams failed. Provider may be down.[/]")
     return False
 
 
@@ -610,209 +662,196 @@ def main():
     console = Console()
     config  = load_config()
 
-    # ── Banner ──────────────────────────────
     banner = Text()
     banner.append("🎌  bb-dl", style="bold magenta")
     banner.append("   Anime Downloader & Streamer  ", style="dim white")
-    banner.append("[AllAnime via anipy-api]", style="dim cyan")
+    banner.append("[AllAnime · AnimeKai]", style="dim cyan")
     console.print(Panel(banner, border_style="magenta", padding=(0, 2)))
     console.print()
 
     show_history(console)
 
-    while True:
-        action = questionary.select(
-            "What do you want to do?",
-            choices=[
-                "⬇️   Download anime",
-                "▶️   Stream anime",
-                "🔁   Continue from history",
-                "⚙️   Settings",
-                "👋   Exit",
-            ],
-            style=questionary.Style([
-                ("selected", "fg:magenta bold"),
-                ("pointer",  "fg:magenta bold"),
-            ]),
-        ).ask()
-
-        if action is None or "Exit" in action:
-            console.print("\n[bold magenta]👋  Goodbye![/]\n")
-            break
-
-        # ── Download ─────────────────────────
-        elif "Download" in action:
-            query = questionary.text("Enter anime name:").ask()
-            if not query:
-                continue
-
-            sub_dub = questionary.select("Sub or Dub?",
-                choices=["sub", "dub"],
-                default=config["default_sub_dub"]).ask() or config["default_sub_dub"]
-
-            anime = search_and_pick(query, sub_dub, console)
-            if not anime:
-                continue
-
-            episodes = questionary.text("Episode or range (e.g. 1 or 1-12):").ask()
-            if not episodes:
-                continue
-
-            quality = questionary.select("Quality?",
-                choices=["360p", "480p", "720p", "1080p"],
-                default=config["default_quality"]).ask() or config["default_quality"]
-
-            download_folder = get_download_folder(anime.name, config)
-            console.print(f"[dim]📁 Saving to: {download_folder}[/]")
-
-            ok = download_episodes(
-                anime, episodes, quality, sub_dub, download_folder, console
-            )
-            if ok:
-                save_history(
-                    anime.name, episodes, quality, sub_dub, "download",
-                    identifier=anime.identifier,
-                    provider_name=anime.provider.NAME,
-                )
-                console.print(f"\n[green]✅ Saved to history![/]")    
-
-        # ── Stream ───────────────────────────
-        elif "Stream" in action:
-            query = questionary.text("Enter anime name:").ask()
-            if not query:
-                continue
-
-            sub_dub = questionary.select("Sub or Dub?",
-                choices=["sub", "dub"],
-                default=config["default_sub_dub"]).ask() or config["default_sub_dub"]
-
-            anime = search_and_pick(query, sub_dub, console)
-            if not anime:
-                continue
-
-            episode = questionary.text("Episode number:").ask()
-            if not episode:
-                continue
-
-            quality = questionary.select("Quality?",
-                choices=["360p", "480p", "720p", "1080p"],
-                default=config["default_quality"]).ask() or config["default_quality"]
-
-            console.print(
-                f"\n[bold green]▶️  Streaming {anime.name} episode {episode}...[/]\n"
-            )
-            ok = stream_episode(anime, episode, quality, sub_dub, console)
-            if ok:
-                save_history(
-                    anime.name, episode, quality, sub_dub, "stream",
-                    identifier=anime.identifier,
-                    provider_name=anime.provider.NAME,
-                )
-
-        # ── Continue from history ─────────────
-        elif "history" in action:
-            history = load_history()
-            if not history:
-                console.print("[red]❌ No history yet. Download something first![/]")
-                continue
-
-            choices = [
-                f"{e['title']}  |  Ep: {e['episodes']}  |  "
-                f"{e['sub_dub'].upper()}  |  {e['quality']}  |  {e['date']}"
-                for e in history
-            ]
-            choices.append("← Cancel")
-
-            pick = questionary.select(
-                "Select from history to continue:",
-                choices=choices,
+    try:
+        while True:
+            action = questionary.select(
+                "What do you want to do?",
+                choices=[
+                    "⬇️   Download anime",
+                    "▶️   Stream anime",
+                    "🔁   Continue from history",
+                    "⚙️   Settings",
+                    "👋   Exit",
+                ],
                 style=questionary.Style([
-                    ("selected", "fg:blue bold"),
-                    ("pointer",  "fg:blue bold"),
+                    ("selected", "fg:magenta bold"),
+                    ("pointer",  "fg:magenta bold"),
                 ]),
             ).ask()
 
-            if pick is None or pick == "← Cancel":
-                continue
+            if action is None or "Exit" in action:
+                console.print("\n[bold magenta]👋  Goodbye![/]\n")
+                break
 
-            entry   = history[choices.index(pick)]
-            last_ep = entry["episodes"]
+            # ── Download ─────────────────────────
+            elif "Download" in action:
+                query = questionary.text("Enter anime name:").ask()
+                if not query:
+                    continue
 
-            try:
-                next_ep = int(str(last_ep).split("-")[-1]) + 1
-            except (ValueError, TypeError):
-                next_ep = 1
+                sub_dub = questionary.select("Sub or Dub?",
+                    choices=["sub", "dub"],
+                    default=config["default_sub_dub"]).ask() or config["default_sub_dub"]
 
-            sub_dub  = entry["sub_dub"]
-            quality  = entry["quality"]
-            provider_name = entry.get("provider", "allanime")
-            identifier    = entry.get("identifier", entry["title"])
+                anime = search_and_pick(query, sub_dub, console)
+                if not anime:
+                    continue
 
-            resume = questionary.select("What do you want to do?", choices=[
-                f"▶️   Continue from episode {next_ep}",
-                f"🔁   Redownload last episode ({last_ep})",
-            ]).ask()
-
-            if resume is None:
-                continue
-
-            if "Redownload" in resume:
-                episodes = str(last_ep)
-                console.print(
-                    f"\n[cyan]🔁 Redownloading: {entry['title']} episode {last_ep}[/]"
-                )
-            else:
-                console.print(
-                    f"\n[cyan]▶️  Continuing: {entry['title']} from episode {next_ep}[/]"
-                )
-                episodes = questionary.text("Episode or range:",
-                    default=str(next_ep)).ask()
+                episodes = questionary.text("Episode or range (e.g. 1 or 1-12):").ask()
                 if not episodes:
                     continue
 
-            # Re-create the Anime object from saved identifier
-            try:
-                from anipy_api.provider import get_provider, LanguageTypeEnum
-                from anipy_api.anime import Anime
+                quality = questionary.select("Quality?",
+                    choices=["360p", "480p", "720p", "1080p"],
+                    default=config["default_quality"]).ask() or config["default_quality"]
 
-                provider = get_provider(provider_name)  # class, not instance
-                lang = (LanguageTypeEnum.DUB if sub_dub == "dub"
-                        else LanguageTypeEnum.SUB)
+                download_folder = get_download_folder(anime.name, config)
+                console.print(f"[dim]📁 Saving to: {download_folder}[/]")
 
-                # Rebuild Anime from identifier (search to get full result)
-                results = list(provider.get_search(entry["title"]))
-                match = next(
-                    (r for r in results if r.identifier == identifier), None
-                )
-                if match is None and results:
-                    match = results[0]  # best guess
+                ok = download_episodes(anime, episodes, quality, sub_dub, download_folder, console)
+                if ok:
+                    save_history(
+                        anime.name, episodes, quality, sub_dub, "download",
+                        identifier=anime.identifier,
+                        provider_name=anime.provider.NAME,
+                    )
+                    console.print(f"\n[green]✅ Saved to history![/]")
 
-                if match is None:
-                    console.print("[red]❌ Could not find anime. Try downloading fresh.[/]")
+            # ── Stream ───────────────────────────
+            elif "Stream" in action:
+                query = questionary.text("Enter anime name:").ask()
+                if not query:
                     continue
 
-                anime = Anime.from_search_result(provider, match)
-            except Exception as e:
-                console.print(f"[red]❌ Error restoring anime: {e}[/]")
-                continue
+                sub_dub = questionary.select("Sub or Dub?",
+                    choices=["sub", "dub"],
+                    default=config["default_sub_dub"]).ask() or config["default_sub_dub"]
 
-            download_folder = get_download_folder(anime.name, config)
+                anime = search_and_pick(query, sub_dub, console)
+                if not anime:
+                    continue
 
-            ok = download_episodes(
-                anime, episodes, quality, sub_dub, download_folder, console
-            )
-            if ok:
-                save_history(
-                    anime.name, episodes, quality, sub_dub, "download",
-                    identifier=anime.identifier,
-                    provider_name=anime.provider.NAME,
-                )
-                console.print(f"\n[green]✅ History updated![/]")
+                episode = questionary.text("Episode number:").ask()
+                if not episode:
+                    continue
 
-        # ── Settings ─────────────────────────
-        elif "Settings" in action:
-            settings_menu(console, config)
+                quality = questionary.select("Quality?",
+                    choices=["360p", "480p", "720p", "1080p"],
+                    default=config["default_quality"]).ask() or config["default_quality"]
+
+                console.print(f"\n[bold green]▶️  Streaming {anime.name} episode {episode}...[/]\n")
+                ok = stream_episode(anime, episode, quality, sub_dub, console)
+                if ok:
+                    save_history(
+                        anime.name, episode, quality, sub_dub, "stream",
+                        identifier=anime.identifier,
+                        provider_name=anime.provider.NAME,
+                    )
+
+            # ── Continue from history ─────────────
+            elif "history" in action:
+                history = load_history()
+                if not history:
+                    console.print("[red]❌ No history yet. Download something first![/]")
+                    continue
+
+                choices = [
+                    f"{e['title']}  |  Ep: {e['episodes']}  |  "
+                    f"{e['sub_dub'].upper()}  |  {e['quality']}  |  {e['date']}"
+                    for e in history
+                ]
+                choices.append("← Cancel")
+
+                pick = questionary.select(
+                    "Select from history to continue:",
+                    choices=choices,
+                    style=questionary.Style([
+                        ("selected", "fg:blue bold"),
+                        ("pointer",  "fg:blue bold"),
+                    ]),
+                ).ask()
+
+                if pick is None or pick == "← Cancel":
+                    continue
+
+                entry   = history[choices.index(pick)]
+                last_ep = entry["episodes"]
+
+                try:
+                    next_ep = int(str(last_ep).split("-")[-1]) + 1
+                except (ValueError, TypeError):
+                    next_ep = 1
+
+                sub_dub       = entry["sub_dub"]
+                quality       = entry["quality"]
+                provider_name = entry.get("provider", "allanime")
+                identifier    = entry.get("identifier", entry["title"])
+
+                resume = questionary.select("What do you want to do?", choices=[
+                    f"▶️   Continue from episode {next_ep}",
+                    f"🔁   Redownload last episode ({last_ep})",
+                ]).ask()
+
+                if resume is None:
+                    continue
+
+                if "Redownload" in resume:
+                    episodes = str(last_ep)
+                    console.print(f"\n[cyan]🔁 Redownloading: {entry['title']} episode {last_ep}[/]")
+                else:
+                    console.print(f"\n[cyan]▶️  Continuing: {entry['title']} from episode {next_ep}[/]")
+                    episodes = questionary.text("Episode or range:",
+                        default=str(next_ep)).ask()
+                    if not episodes:
+                        continue
+
+                try:
+                    from anipy_api.provider import get_provider, LanguageTypeEnum
+                    from anipy_api.anime import Anime
+
+                    provider = get_provider(provider_name)
+                    results  = list(provider.get_search(entry["title"]))
+                    match    = next((r for r in results if r.identifier == identifier), None)
+                    if match is None and results:
+                        match = results[0]
+                    if match is None:
+                        console.print("[red]❌ Could not find anime. Try downloading fresh.[/]")
+                        continue
+
+                    anime = Anime.from_search_result(provider, match)
+                except Exception as e:
+                    console.print(f"[red]❌ Error restoring anime: {e}[/]")
+                    continue
+
+                download_folder = get_download_folder(anime.name, config)
+                ok = download_episodes(anime, episodes, quality, sub_dub, download_folder, console)
+                if ok:
+                    save_history(
+                        anime.name, episodes, quality, sub_dub, "download",
+                        identifier=anime.identifier,
+                        provider_name=anime.provider.NAME,
+                    )
+                    console.print(f"\n[green]✅ History updated![/]")
+
+            # ── Settings ─────────────────────────
+            elif "Settings" in action:
+                settings_menu(console, config)
+
+    except KeyboardInterrupt:
+        console.print("\n\n[bold magenta]👋  Interrupted. Goodbye![/]\n")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n👋  Interrupted. Goodbye!\n")
