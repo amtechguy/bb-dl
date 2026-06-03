@@ -9,18 +9,20 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 - Search any anime by name and get results with **release year** and **language availability**
 - Pick your anime from a clean table — see year, episode count, status, and genres before committing
 - Download single episodes or entire season ranges (e.g. `1-24`)
-- Stream directly in mpv without downloading
+- Stream directly in **mpv or VLC** without downloading
 - Sub or dub — your choice, no judgment
 - Quality selection: 360p, 480p, 720p, 1080p
 - **Auto stream fallback** — if a CDN blocks one stream, it tries the next automatically
+- **Provider fallback** — if AllAnime fails, automatically retries on **AnimeKai** without any extra steps
 - **HLS detection** — warns you if ffmpeg is needed before attempting download
 - Automatically organises downloads into `~/Videos/<anime-name>/`
 - Keeps a download/stream history so you never lose your place
 - Continue from where you stopped with one click
 - Auto installs missing Python dependencies on first run
+- **🌟 Discover menu** — browse top airing, currently airing this season, or this week's schedule powered by the Jikan API
 - **Arrow-key menus** — no typing numbers like it's 1995
 - **Coloured tables and panels** for search results, anime info, and history
-- **Config file** — set default quality, sub/dub and download folder once and forget it
+- **Config file** — set default quality, sub/dub, player and download folder once and forget it
 - **Settings menu** — change defaults anytime without touching config files
 - **🗑️ Clear History** — wipe your watch history cleanly from Settings with a confirmation prompt
 
@@ -28,7 +30,7 @@ bb-dl is a command line tool for Linux that lets you search, download and stream
 
 - Linux (Arch, Manjaro, Debian, Ubuntu, Zorin, Fedora, and more)
 - Python 3.9+
-- mpv (for streaming)
+- mpv **or** vlc (for streaming — pick your preferred player)
 - ffmpeg (for HLS/m3u8 stream downloads)
 - requests, rich, questionary, anipy-api — **auto-installed on first run**
 
@@ -121,7 +123,8 @@ This runs in the background and rebuilds the binary instantly whenever `bb-dl.py
 
 Just run `bb-dl` and follow the prompts:
 
-1. Choose Download or Stream
+### Download or Stream
+1. Choose **Download** or **Stream**
 2. Type anime name
 3. Pick from results with arrow keys (shows year + language)
 4. View the info panel (year, episode count, status, genres)
@@ -129,6 +132,14 @@ Just run `bb-dl` and follow the prompts:
 6. Enter episode or range (e.g. `1` or `1-24`)
 7. Pick quality
 8. Done ✅
+
+### 🌟 Discover
+Not sure what to watch? Use **Discover** from the main menu:
+- **🔥 Top airing this week** — pulls the current top 10 airing anime from MyAnimeList via Jikan
+- **📺 Currently airing this season** — browse everything airing right now
+- **📅 This week's schedule** — pick a day and see what's airing
+
+Pick an anime from the list and go straight into Download or Stream — no typing needed.
 
 ## Config
 
@@ -139,6 +150,7 @@ bb-dl saves a config file at `~/.bb-dl/config.json`. Change settings anytime fro
 | Quality         | 720p     | 360p, 480p, 720p, 1080p |
 | Sub/Dub         | sub      | sub, dub                |
 | Download Folder | ~/Videos | any path                |
+| Player          | mpv      | mpv, vlc                |
 
 ## Troubleshooting 🔧
 
@@ -150,6 +162,19 @@ This means every available stream for that episode returned a 403. This is a CDN
 - Wait 10-30 minutes and try again — CDN bans are often temporary
 - Try a different quality (720p instead of 1080p)
 - Try a different episode to confirm the issue is episode-specific
+
+---
+
+### `🔄 AnimeKai fallback triggered`
+
+If AllAnime returns broken responses (common during outages), bb-dl will automatically search AnimeKai for the same anime and episode. You'll see a message like:
+
+```
+🔄 Trying fallback: animekai...
+✅ Got streams from animekai
+```
+
+This is normal — just let it run. No action needed.
 
 ---
 
