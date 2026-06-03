@@ -40,7 +40,7 @@ def check_dependencies():
                 check=True,
             )
 
-    needed = {"mpv": "mpv", "ffmpeg": "ffmpeg"}
+    needed = {"mpv": "mpv", "ffmpeg": "ffmpeg", "vlc": "vlc"}
     missing_sys = [pkg for binary, pkg in needed.items() if not shutil.which(binary)]
     if missing_sys:
         print(f"⚠️  Missing optional system deps: {', '.join(missing_sys)}")
@@ -56,6 +56,7 @@ CONFIG_DEFAULTS = {
     "default_quality":  "720p",
     "default_sub_dub":  "sub",
     "download_folder":  str(os.path.expanduser("~/Videos")),
+    "player":           "mpv",
 }
 
 
@@ -191,6 +192,7 @@ def settings_menu(console, config):
                 f"🎬  Default Quality      [{config['default_quality']}]",
                 f"🗣️  Default Sub/Dub      [{config['default_sub_dub']}]",
                 f"📁  Download Folder      [{config['download_folder']}]",
+                f"🎮  Default Player       [{config.get('player', 'mpv')}]",
                 "🗑️   Clear History",
                 "← Back",
             ],
@@ -225,6 +227,14 @@ def settings_menu(console, config):
                 config["download_folder"] = folder
                 save_config(config)
                 console.print(f"[green]✅ Download folder → {folder}[/]")
+        elif "Player" in action:
+            p = questionary.select("Select default player:",
+                choices=["mpv", "vlc"],
+                default=config.get("player", "mpv")).ask()
+            if p:
+                config["player"] = p
+                save_config(config)
+                console.print(f"[green]✅ Default player → {p}[/]")
         elif "Clear History" in action:
             clear_history(console)
 
@@ -579,7 +589,7 @@ def download_episodes(anime, episodes_str, quality, sub_dub, download_folder, co
     return success_count > 0
 
 
-def stream_episode(anime, episode_str, quality, sub_dub, console):
+def stream_episode(anime, episode_str, quality, sub_dub, console, player="mpv"):
     from anipy_api.provider import LanguageTypeEnum
 
     lang = LanguageTypeEnum.DUB if sub_dub == "dub" else LanguageTypeEnum.SUB
@@ -608,8 +618,9 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
 
     streams.sort(key=lambda s: abs(s.resolution - preferred_q))
 
-    if not shutil.which("mpv"):
-        console.print("[red]❌ mpv not found. Install it: sudo pacman -S mpv[/]")
+    if not shutil.which(player):
+        install_pkg = "vlc" if player == "vlc" else "mpv"
+        console.print(f"[red]❌ {player} not found. Install it: sudo pacman -S {install_pkg}[/]")
         console.print(f"[yellow]   Direct URL: {streams[0].url}[/]")
         return False
 
@@ -627,17 +638,24 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
         )
         console.print(f"\n[bold green]▶️  Opening in mpv...[/]\n")
 
-        mpv_cmd = [
-            "mpv", stream.url,
-            "--no-ytdl",
-            f"--title={stream_anime.name} - Episode {ep}",
-            f"--referrer={referrer}",
-            f"--user-agent={user_agent}",
-        ]
+        if player == "vlc":
+            player_cmd = [
+                "vlc", stream.url,
+                f"--http-referrer={referrer}",
+                f"--http-user-agent={user_agent}",
+            ]
+        else:
+            player_cmd = [
+                "mpv", stream.url,
+                "--no-ytdl",
+                f"--title={stream_anime.name} - Episode {ep}",
+                f"--referrer={referrer}",
+                f"--user-agent={user_agent}",
+            ]
         if stream.subtitle:
-            mpv_cmd.append(f"--sub-file={stream.subtitle}")
+            player_cmd.append(f"--sub-file={stream.subtitle}")
 
-        result = subprocess.run(mpv_cmd)
+        result = subprocess.run(player_cmd)
         if result.returncode != 2:
             return True
 
@@ -645,6 +663,151 @@ def stream_episode(anime, episode_str, quality, sub_dub, console):
 
     console.print("[red]❌ All streams failed. Provider may be down.[/]")
     return False
+
+
+# ─────────────────────────────────────────────
+#  Discover (Jikan API)
+# ─────────────────────────────────────────────
+
+def _jikan_get(url, console):
+    """Fetch from Jikan API with error handling. Returns parsed JSON or None."""
+    import requests
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        console.print(f"[red]❌ Could not reach Jikan API: {e}[/]")
+        return None
+
+
+def _pick_from_anime_list(items, console, title):
+    """Show a Rich table of anime and let the user pick one. Returns title string or None."""
+    from rich.table import Table
+    import questionary
+
+    if not items:
+        console.print("[yellow]⚠️  No results found.[/]")
+        return None
+
+    table = Table(title=title, border_style="yellow",
+                  header_style="bold magenta", show_lines=True)
+    table.add_column("#",      style="dim",       width=4,  justify="right")
+    table.add_column("Title",  style="bold white")
+    table.add_column("Score",  style="yellow",    width=7,  justify="center")
+    table.add_column("Eps",    style="cyan",       width=5,  justify="center")
+    table.add_column("Genres", style="dim",        width=25)
+
+    for i, a in enumerate(items, 1):
+        score  = str(a.get("score") or "?")
+        eps    = str(a.get("episodes") or "?")
+        genres = ", ".join(g["name"] for g in a.get("genres", [])[:3]) or "?"
+        table.add_row(str(i), a["title"], score, eps, genres)
+
+    console.print(table)
+
+    choices = [a["title"] for a in items]
+    choices.append("← Back")
+
+    pick = questionary.select(
+        "Pick an anime to search for:",
+        choices=choices,
+        style=questionary.Style([
+            ("selected", "fg:yellow bold"),
+            ("pointer",  "fg:yellow bold"),
+        ]),
+    ).ask()
+
+    if pick is None or pick == "← Back":
+        return None
+    return pick
+
+
+def _fetch_top_airing(console):
+    console.print("[dim]⏳ Fetching top airing anime...[/]", end="\r")
+    data = _jikan_get("https://api.jikan.moe/v4/top/anime?filter=airing&limit=10", console)
+    console.print(" " * 45, end="\r")
+    if not data:
+        return None
+    return _pick_from_anime_list(data.get("data", []), console, "🔥 Top Airing This Week")
+
+
+def _fetch_current_season(console):
+    console.print("[dim]⏳ Fetching current season...[/]", end="\r")
+    data = _jikan_get("https://api.jikan.moe/v4/seasons/now?limit=20", console)
+    console.print(" " * 45, end="\r")
+    if not data:
+        return None
+    return _pick_from_anime_list(data.get("data", []), console, "📺 Currently Airing This Season")
+
+
+def _fetch_weekly_schedule(console):
+    import questionary
+    from datetime import datetime
+
+    days  = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    today = datetime.now().strftime("%A").lower()
+
+    day_pick = questionary.select(
+        "Which day?",
+        choices=[
+            d.capitalize() + (" (today)" if d == today else "")
+            for d in days
+        ] + ["← Back"],
+        style=questionary.Style([
+            ("selected", "fg:cyan bold"),
+            ("pointer",  "fg:cyan bold"),
+        ]),
+    ).ask()
+
+    if day_pick is None or "Back" in day_pick:
+        return None
+
+    day_key = day_pick.split()[0].lower()
+    console.print(f"[dim]⏳ Fetching {day_key.capitalize()}'s schedule...[/]", end="\r")
+    data = _jikan_get(
+        f"https://api.jikan.moe/v4/schedules?filter={day_key}&limit=20", console
+    )
+    console.print(" " * 45, end="\r")
+    if not data:
+        return None
+    return _pick_from_anime_list(
+        data.get("data", []), console, f"📅 {day_key.capitalize()}'s Schedule"
+    )
+
+
+def discover_menu(console):
+    import questionary
+    while True:
+        console.print()
+        choice = questionary.select(
+            "🌟  Discover — what would you like to browse?",
+            choices=[
+                "🔥  Top airing this week",
+                "📺  Currently airing this season",
+                "📅  This week's schedule",
+                "← Back",
+            ],
+            style=questionary.Style([
+                ("selected", "fg:yellow bold"),
+                ("pointer",  "fg:yellow bold"),
+            ]),
+        ).ask()
+
+        if choice is None or "Back" in choice:
+            return None
+
+        if "Top airing" in choice:
+            title = _fetch_top_airing(console)
+        elif "Currently airing" in choice:
+            title = _fetch_current_season(console)
+        elif "schedule" in choice:
+            title = _fetch_weekly_schedule(console)
+        else:
+            return None
+
+        if title:
+            return title
 
 
 # ─────────────────────────────────────────────
@@ -678,6 +841,7 @@ def main():
                 choices=[
                     "⬇️   Download anime",
                     "▶️   Stream anime",
+                    "🌟   Discover anime",
                     "🔁   Continue from history",
                     "⚙️   Settings",
                     "👋   Exit",
@@ -749,13 +913,65 @@ def main():
                     default=config["default_quality"]).ask() or config["default_quality"]
 
                 console.print(f"\n[bold green]▶️  Streaming {anime.name} episode {episode}...[/]\n")
-                ok = stream_episode(anime, episode, quality, sub_dub, console)
+                ok = stream_episode(anime, episode, quality, sub_dub, console,
+                                    player=config.get("player", "mpv"))
                 if ok:
                     save_history(
                         anime.name, episode, quality, sub_dub, "stream",
                         identifier=anime.identifier,
                         provider_name=anime.provider.NAME,
                     )
+
+            # ── Discover ─────────────────────────
+            elif "Discover" in action:
+                discovered_title = discover_menu(console)
+                if not discovered_title:
+                    continue
+
+                sub_dub = questionary.select("Sub or Dub?",
+                    choices=["sub", "dub"],
+                    default=config["default_sub_dub"]).ask() or config["default_sub_dub"]
+
+                anime = search_and_pick(discovered_title, sub_dub, console)
+                if not anime:
+                    continue
+
+                mode = questionary.select(
+                    "Download or Stream?",
+                    choices=["⬇️   Download", "▶️   Stream"],
+                    style=questionary.Style([
+                        ("selected", "fg:magenta bold"),
+                        ("pointer",  "fg:magenta bold"),
+                    ]),
+                ).ask()
+
+                if mode and "Download" in mode:
+                    episodes = questionary.text("Episode or range (e.g. 1 or 1-12):").ask()
+                    if not episodes:
+                        continue
+                    quality = questionary.select("Quality?",
+                        choices=["360p", "480p", "720p", "1080p"],
+                        default=config["default_quality"]).ask() or config["default_quality"]
+                    download_folder = get_download_folder(anime.name, config)
+                    console.print(f"[dim]📁 Saving to: {download_folder}[/]")
+                    ok = download_episodes(anime, episodes, quality, sub_dub, download_folder, console)
+                    if ok:
+                        save_history(anime.name, episodes, quality, sub_dub, "download",
+                            identifier=anime.identifier, provider_name=anime.provider.NAME)
+                        console.print(f"\n[green]✅ Saved to history![/]")
+                elif mode and "Stream" in mode:
+                    episode = questionary.text("Episode number:").ask()
+                    if not episode:
+                        continue
+                    quality = questionary.select("Quality?",
+                        choices=["360p", "480p", "720p", "1080p"],
+                        default=config["default_quality"]).ask() or config["default_quality"]
+                    console.print(f"\n[bold green]▶️  Streaming {anime.name} episode {episode}...[/]\n")
+                    ok = stream_episode(anime, episode, quality, sub_dub, console,
+                                        player=config.get("player", "mpv"))
+                    if ok:
+                        save_history(anime.name, episode, quality, sub_dub, "stream",
+                            identifier=anime.identifier, provider_name=anime.provider.NAME)
 
             # ── Continue from history ─────────────
             elif "history" in action:
