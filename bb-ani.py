@@ -647,7 +647,7 @@ def handle_anime_action(anime_data):
 def main_menu():
     while True:
         console.clear()
-        console.print(Panel.fit("[bold blue]🎌 bb-ani v2.0[/bold blue] - Anime Downloader & Streamer", border_style="blue"))
+        console.print(Panel.fit("[bold blue]🎌 bb-ani v3.0[/bold blue] - Anime Downloader & Streamer", border_style="blue"))
         
         choices = [
             questionary.Choice("🌟 Discover (Trending, Popular, New)", "discover"),

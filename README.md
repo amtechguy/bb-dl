@@ -24,6 +24,7 @@ bb-ani is a command line tool for Linux that lets you search, discover, download
 ## Requirements
 
 - Linux (Arch, Manjaro, Debian, Ubuntu, Zorin, Fedora, and more)
+- Windows via **WSL 2** (Windows Subsystem for Linux)
 - Python 3.9+
 - [ani-cli](https://github.com/pystardust/ani-cli) — handles the actual streaming and downloading
 - mpv **or** vlc (for streaming)
