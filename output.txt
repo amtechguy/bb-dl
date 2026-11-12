@@ -1,2 +1,0 @@
-[2K[1;34mChecking dependencies...[0m
-[2K[1;31mProgram "syncplay" not found. Please install it.[0m
